@@ -1,0 +1,321 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ──────────────────────────────────────────────
+// USER & AUTH
+// ──────────────────────────────────────────────
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String
+  passwordHash   String
+  role           String    @default("MEMBER") // ADMIN, LC_LEAD, MEMBER, FINANCE, PAYMENT_ADMIN
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  deletedAt      DateTime?
+
+  // Relations
+  events              Event[]            @relation("EventCreator")
+  assignedEvents      Event[]            @relation("EventAssignee")
+  approvalActions     CateringApproval[] @relation("ApprovalActor")
+  cateringAssignments CateringApproval[] @relation("CateringAssignee")
+  paymentActions      CateringApproval[] @relation("PaymentActor")
+  roomAssignments     RoomReservation[]
+  flyerAssignments    FlyerTask[]
+  emailLogs           EmailLog[]         @relation("EmailRecipient")
+  actionTokens        ActionToken[]
+  notificationPrefs   UserNotificationPref?
+}
+
+model ActionToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  type      String   // APPROVE, REJECT, CHANGES_REQUESTED, CONFIRM_PAYMENT, ACCEPT_TASK
+  eventId   String
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id])
+  user  User  @relation(fields: [userId], references: [id])
+}
+
+model UserNotificationPref {
+  id             String  @id @default(cuid())
+  userId         String  @unique
+  digestMode     Boolean @default(false)
+  emailEnabled   Boolean @default(true)
+
+  user User @relation(fields: [userId], references: [id])
+}
+
+// ──────────────────────────────────────────────
+// ACADEMIC YEAR & BUDGET
+// ──────────────────────────────────────────────
+
+model AcademicYear {
+  id         String   @id @default(cuid())
+  label      String   // e.g. "2025-2026"
+  startMonth Int      @default(9) // 1-12, admin-configurable
+  startYear  Int      // e.g. 2025
+  endMonth   Int      @default(8)
+  endYear    Int      // e.g. 2026
+  isCurrent  Boolean  @default(false)
+  budget     Float?   // Total yearly budget
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  events Event[]
+}
+
+// ──────────────────────────────────────────────
+// EVENT (core entity)
+// ──────────────────────────────────────────────
+
+model Event {
+  id          String    @id @default(cuid())
+  title       String
+  description String?
+  date        DateTime
+  time        String?
+  location    String?
+  status      String    @default("DRAFT") // DRAFT, PLANNING, READY, IN_PROGRESS, COMPLETED, ARCHIVED
+  tags        String    @default("")
+  semester    String?
+
+  // Event format
+  isOnCampus  Boolean   @default(true)
+  isVirtual   Boolean   @default(false)
+  isHybrid    Boolean   @default(false)
+  virtualLink String?
+
+  // Speaker
+  speakerName  String?
+  speakerEmail String?
+  speakerPhone String?
+  speakerOrg   String?
+
+  // Point of Contact
+  pocName      String?
+  pocEmail     String?
+  pocPhone     String?
+
+  // Budget
+  budgetAmount Float?
+
+  // Retrospective
+  doAgain            Boolean?
+  reinviteSpeaker    Boolean?
+  retrospectiveNotes String?
+  headcount          Int?
+
+  // Ownership
+  createdById    String
+  assigneeId     String?
+  academicYearId String?
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  // Relations
+  createdBy        User              @relation("EventCreator", fields: [createdById], references: [id])
+  assignee         User?             @relation("EventAssignee", fields: [assigneeId], references: [id])
+  academicYear     AcademicYear?     @relation(fields: [academicYearId], references: [id])
+  expenses         Expense[]
+  catering         CateringApproval?
+  room             RoomReservation?
+  flyer            FlyerTask?
+  dayOfChecklist   DayOfChecklist?
+  attachments      Attachment[]
+  emailLogs        EmailLog[]
+  actionTokens     ActionToken[]
+}
+
+// ──────────────────────────────────────────────
+// EXPENSES
+// ──────────────────────────────────────────────
+
+model Expense {
+  id          String   @id @default(cuid())
+  eventId     String
+  description String
+  amount      Float
+  category    String
+  vendor      String?
+  isPaid      Boolean  @default(false)
+  paidDate    DateTime?
+  receiptUrl  String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  event Event @relation(fields: [eventId], references: [id])
+}
+
+// ──────────────────────────────────────────────
+// CATERING APPROVAL CHAIN
+// ──────────────────────────────────────────────
+
+model CateringApproval {
+  id              String    @id @default(cuid())
+  eventId         String    @unique
+  status          String    @default("DRAFT")
+
+  vendor          String?
+  estimatedCost   Float?
+  actualCost      Float?
+  menuDetails     String?
+  dietaryNotes    String?
+  headcount       Int?
+  ezCaterLink     String?
+  invoiceImageUrl String?
+
+  revisionCount   Int       @default(0)
+  changeNotes     String?
+
+  // LC Lead assignment & acceptance
+  assigneeId      String?
+  acceptedAt      DateTime?
+  reminderSentAt  DateTime?
+
+  // Finance approval
+  submittedAt     DateTime?
+  decidedAt       DateTime?
+  decidedById     String?
+
+  // Payment (PAYMENT_ADMIN flow)
+  invoiceUrl      String?
+  paymentStatus   String    @default("PENDING")
+  paidById        String?
+  paidAt          DateTime?
+  paymentNote     String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  event     Event @relation(fields: [eventId], references: [id])
+  assignee  User? @relation("CateringAssignee", fields: [assigneeId], references: [id])
+  decidedBy User? @relation("ApprovalActor", fields: [decidedById], references: [id])
+  paidBy    User? @relation("PaymentActor", fields: [paidById], references: [id])
+}
+
+// ──────────────────────────────────────────────
+// ROOM RESERVATION
+// ──────────────────────────────────────────────
+
+model RoomReservation {
+  id              String    @id @default(cuid())
+  eventId         String    @unique
+  roomName        String?
+  reservationUrl  String?
+  confirmationId  String?
+  status          String    @default("PENDING")
+  assigneeId      String?
+  acceptedAt      DateTime?
+  reminderSentAt  DateTime?
+  dueDate         DateTime?
+  confirmedAt     DateTime?
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  event    Event @relation(fields: [eventId], references: [id])
+  assignee User? @relation(fields: [assigneeId], references: [id])
+}
+
+// ──────────────────────────────────────────────
+// FLYER DISTRIBUTION TASK
+// ──────────────────────────────────────────────
+
+model FlyerTask {
+  id               String    @id @default(cuid())
+  eventId          String    @unique
+  assigneeId       String?
+  acceptedAt       DateTime?
+  reminderSentAt   DateTime?
+  dueDate          DateTime?
+  flyerUrl         String?
+  designStatus     String    @default("NOT_STARTED")
+  distYaleConnect  Boolean   @default(false)
+  distEmail        Boolean   @default(false)
+  distWhatsApp     Boolean   @default(false)
+  distTeams        Boolean   @default(false)
+  distOther        String?
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  event    Event @relation(fields: [eventId], references: [id])
+  assignee User? @relation(fields: [assigneeId], references: [id])
+}
+
+// ──────────────────────────────────────────────
+// DAY-OF CHECKLIST
+// ──────────────────────────────────────────────
+
+model DayOfChecklist {
+  id        String             @id @default(cuid())
+  eventId   String             @unique
+  notes     String?
+  createdAt DateTime           @default(now())
+  updatedAt DateTime           @updatedAt
+
+  event Event              @relation(fields: [eventId], references: [id])
+  items DayOfChecklistItem[]
+}
+
+model DayOfChecklistItem {
+  id          String   @id @default(cuid())
+  checklistId String
+  label       String
+  isChecked   Boolean  @default(false)
+  sortOrder   Int      @default(0)
+  isCustom    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  checklist DayOfChecklist @relation(fields: [checklistId], references: [id], onDelete: Cascade)
+}
+
+// ──────────────────────────────────────────────
+// ATTACHMENTS
+// ──────────────────────────────────────────────
+
+model Attachment {
+  id        String   @id @default(cuid())
+  eventId   String
+  filename  String
+  filepath  String
+  mimeType  String
+  sizeBytes Int
+  createdAt DateTime @default(now())
+
+  event Event @relation(fields: [eventId], references: [id])
+}
+
+// ──────────────────────────────────────────────
+// EMAIL LOG
+// ──────────────────────────────────────────────
+
+model EmailLog {
+  id          String   @id @default(cuid())
+  eventId     String?
+  recipientId String?
+  toEmail     String
+  subject     String
+  reason      String   // APPROVAL_REQUEST, PAYMENT_REQUEST, OVERDUE_TASK, DAY_OF_REMINDER, DIGEST, MANUAL, TASK_ASSIGNMENT, TASK_REMINDER
+  status      String   @default("SENT")
+  dedupeKey   String?
+  sentAt      DateTime @default(now())
+
+  event     Event? @relation(fields: [eventId], references: [id])
+  recipient User?  @relation("EmailRecipient", fields: [recipientId], references: [id])
+}
