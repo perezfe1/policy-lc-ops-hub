@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
 import { AcademicYearForm } from "@/components/AcademicYearForm";
 import { AcademicYearRow } from "@/components/AcademicYearRow";
+import { UserManagement } from "@/components/UserManagement";
 
 const MONTHS = [
   "January", "February", "March", "April", "May", "June",
@@ -25,10 +26,21 @@ export default async function SettingsPage() {
     },
   });
 
+  const users = await prisma.user.findMany({
+    where: { deletedAt: null },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, email: true, role: true, createdAt: true },
+  });
+
   return (
     <div className="p-6 lg:p-8 max-w-3xl">
       <h1 className="text-2xl font-display font-bold text-gray-900 mb-2">Settings</h1>
-      <p className="text-sm text-gray-500 mb-8">Manage academic years, budgets, and system configuration.</p>
+      <p className="text-sm text-gray-500 mb-8">Manage users, academic years, budgets, and system configuration.</p>
+
+      {/* User Management */}
+      <section className="mb-8">
+        <UserManagement users={users.map(u => ({ ...u, createdAt: u.createdAt.toISOString() }))} />
+      </section>
 
       {/* Academic Years */}
       <section className="card mb-8">
