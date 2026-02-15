@@ -1,6 +1,6 @@
 "use client";
 
-import { ROLES } from "@/lib/constants";
+import { ROLES, ROLE_LABELS } from "@/lib/constants";
 import { useState } from "react";
 import toast from "react-hot-toast";
 
@@ -12,8 +12,13 @@ interface UserData {
   createdAt: string;
 }
 
-export function UserManagement({ users }: { users: UserData[] }) {
+export function UserManagement({ users: initialUsers }: { users: UserData[] }) {
+  const [users, setUsers] = useState(initialUsers);
   const [adding, setAdding] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<{ name: string; email: string; role: string; password: string }>({
+    name: "", email: "", role: "", password: "",
+  });
 
   async function handleAddUser(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -30,12 +35,62 @@ export function UserManagement({ users }: { users: UserData[] }) {
         }),
       });
       if (res.ok) {
+        const newUser = await res.json();
+        setUsers([...users, { ...newUser, createdAt: new Date().toISOString() }]);
         toast.success("User created!");
         setAdding(false);
-        window.location.reload();
       } else {
         const data = await res.json();
         toast.error(data.error || "Failed to create user");
+      }
+    } catch {
+      toast.error("Network error");
+    }
+  }
+
+  function startEdit(user: UserData) {
+    setEditingId(user.id);
+    setEditForm({ name: user.name, email: user.email, role: user.role, password: "" });
+  }
+
+  async function handleSaveEdit(id: string) {
+    try {
+      const body: Record<string, string> = { id, name: editForm.name, email: editForm.email, role: editForm.role };
+      if (editForm.password.length > 0) body.password = editForm.password;
+
+      const res = await fetch("/api/users", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setUsers(users.map((u) => u.id === id ? { ...u, ...updated } : u));
+        toast.success("User updated!");
+        setEditingId(null);
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to update");
+      }
+    } catch {
+      toast.error("Network error");
+    }
+  }
+
+  async function handleDelete(id: string, name: string) {
+    if (!confirm(`Delete ${name}? This can't be undone.`)) return;
+    try {
+      const res = await fetch("/api/users", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      if (res.ok) {
+        setUsers(users.filter((u) => u.id !== id));
+        toast.success("User deleted");
+      } else {
+        const data = await res.json();
+        toast.error(data.error || "Failed to delete");
       }
     } catch {
       toast.error("Network error");
@@ -52,25 +107,25 @@ export function UserManagement({ users }: { users: UserData[] }) {
       </div>
       <div className="p-5">
         {adding && (
-          <form onSubmit={handleAddUser} className="mb-4 p-4 bg-gray-50 rounded-lg space-y-3">
+          <form onSubmit={handleAddUser} className="mb-6 p-4 bg-gray-50 rounded-lg space-y-3">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="label">Name</label>
-                <input name="name" className="input" required />
+                <input name="name" className="input" placeholder="Jane Smith" required />
               </div>
               <div>
                 <label className="label">Email</label>
-                <input name="email" type="email" className="input" required />
+                <input name="email" type="email" className="input" placeholder="jane@yale.edu" required />
               </div>
               <div>
                 <label className="label">Password</label>
-                <input name="password" type="password" className="input" required minLength={6} />
+                <input name="password" type="password" className="input" placeholder="Min 6 characters" required minLength={6} />
               </div>
               <div>
                 <label className="label">Role</label>
                 <select name="role" className="input">
                   {ROLES.map((r) => (
-                    <option key={r} value={r}>{r}</option>
+                    <option key={r} value={r}>{ROLE_LABELS[r as keyof typeof ROLE_LABELS] || r}</option>
                   ))}
                 </select>
               </div>
@@ -79,26 +134,81 @@ export function UserManagement({ users }: { users: UserData[] }) {
           </form>
         )}
 
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-gray-100">
-              <th className="text-left py-2 font-medium text-gray-500">Name</th>
-              <th className="text-left py-2 font-medium text-gray-500">Email</th>
-              <th className="text-left py-2 font-medium text-gray-500">Role</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-50">
-            {users.map((u) => (
-              <tr key={u.id}>
-                <td className="py-2 text-gray-900">{u.name}</td>
-                <td className="py-2 text-gray-600">{u.email}</td>
-                <td className="py-2">
-                  <span className="badge bg-yale-blue/10 text-yale-blue text-xs">{u.role}</span>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div className="space-y-2">
+          {users.map((u) => (
+            <div key={u.id} className="border rounded-lg p-4">
+              {editingId === u.id ? (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="label">Name</label>
+                      <input
+                        className="input"
+                        value={editForm.name}
+                        onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Email</label>
+                      <input
+                        type="email"
+                        className="input"
+                        value={editForm.email}
+                        onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                      />
+                    </div>
+                    <div>
+                      <label className="label">Role</label>
+                      <select
+                        className="input"
+                        value={editForm.role}
+                        onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
+                      >
+                        {ROLES.map((r) => (
+                          <option key={r} value={r}>{ROLE_LABELS[r as keyof typeof ROLE_LABELS] || r}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">New Password <span className="text-gray-400 font-normal">(leave blank to keep)</span></label>
+                      <input
+                        type="password"
+                        className="input"
+                        value={editForm.password}
+                        onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                        placeholder="••••••••"
+                        minLength={6}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={() => handleSaveEdit(u.id)} className="btn-primary btn-sm">Save</button>
+                    <button onClick={() => setEditingId(null)} className="btn-secondary btn-sm">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-full bg-yale-blue/10 flex items-center justify-center text-sm font-bold text-yale-blue">
+                      {u.name.charAt(0)}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-gray-900">{u.name}</div>
+                      <div className="text-xs text-gray-500">{u.email}</div>
+                    </div>
+                    <span className="badge bg-yale-blue/10 text-yale-blue text-xs">
+                      {ROLE_LABELS[u.role as keyof typeof ROLE_LABELS] || u.role}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button onClick={() => startEdit(u)} className="btn-secondary btn-sm text-xs">✏️ Edit</button>
+                    <button onClick={() => handleDelete(u.id, u.name)} className="btn-sm text-xs text-red-500 hover:bg-red-50 px-2 py-1 rounded-md transition-colors">🗑️</button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
