@@ -5,7 +5,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { sendApprovalRequest, sendPaymentRequest } from "@/lib/email";
+import { sendApprovalRequest, sendPaymentRequest, sendTaskAssignment, sendTaskReminder } from "@/lib/email";
 import { DEFAULT_CHECKLIST_ITEMS } from "@/lib/constants";
 
 async function getSession() {
@@ -478,18 +478,16 @@ export async function assignTaskLead(
     }
   }
 
-  // Log email notification (in production, this would send an actual email)
+  // Send email notification via Resend
   const event = await prisma.event.findUnique({ where: { id: eventId }, select: { title: true } });
-  await prisma.emailLog.create({
-    data: {
-      eventId,
-      recipientId: assigneeId,
-      toEmail: assignee.email,
-      subject: `You've been assigned to ${taskType} for "${event?.title}"`,
-      reason: "TASK_ASSIGNMENT",
-      status: "SENT",
-    },
-  });
+  await sendTaskAssignment(
+    eventId,
+    event?.title || "Untitled Event",
+    taskType === "catering" ? "Catering" : taskType === "room" ? "Room Reservation" : "Flyer",
+    assigneeId,
+    assignee.email,
+    assignee.name,
+  );
 
   revalidatePath(`/events/${eventId}`);
   revalidatePath("/events");

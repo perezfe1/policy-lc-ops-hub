@@ -2,9 +2,13 @@
   "name": "policy-lc-ops-hub",
   "version": "1.0.0",
   "private": true,
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "npx prisma generate && next build",
+    "postinstall": "prisma generate",
     "start": "next start",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
